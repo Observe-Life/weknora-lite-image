@@ -104,6 +104,11 @@ jobs:
 
       # ------------------------------------------------------------------
       # 5. 构建并推送镜像
+      #
+      # WITH_ANYDOC=1 会让 Dockerfile 链接 anydoc 引擎：
+      # epub / docx / xlsx / pptx 可以在进程内解析，不需要 Python docreader。
+      # 代价是构建阶段要多装 Rust 并编译一份静态库，整体耗时增加几分钟。
+      # 官方 docker/Dockerfile.app 默认就是开的。
       # ------------------------------------------------------------------
       - name: 设置 Buildx
         uses: docker/setup-buildx-action@v3
@@ -129,6 +134,7 @@ jobs:
             WK_VERSION=${{ steps.vars.outputs.ref }}
             WK_COMMIT=${{ github.sha }}
             WK_BUILD_TIME=${{ steps.vars.outputs.build_time }}
+            WITH_ANYDOC=1
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

@@ -1,0 +1,32 @@
+services:
+  weknora-lite:
+    # 非官方镜像，由 GitHub Actions 从 Tencent/WeKnora v0.8.2 源码云端编译
+    # 构建仓库：https://github.com/Observe-Life/weknora-lite-image
+    image: ghcr.io/observe-life/weknora-lite-image:0.8.2
+    container_name: weknora-lite
+    restart: unless-stopped
+
+    ports:
+      # 飞牛上 8080 已被占用，对外映射到 18080
+      - "18080:8080"
+
+    volumes:
+      # 数据库、上传的文档、生成的配置都在这里，备份直接打包本目录
+      - ./data:/data
+
+    environment:
+      TZ: Asia/Shanghai
+
+      # ---- 按需启用（容器环境变量优先级高于 ./data/.env.lite）----
+      # LLM / 向量模型服务地址，Lite 默认走 127.0.0.1:11434 的 Ollama，
+      # 容器内的 127.0.0.1 指容器自身，所以要么与 Ollama 同网络，要么改成飞牛的局域网 IP。
+      # OLLAMA_BASE_URL: http://192.168.31.115:11434
+      # LOG_LEVEL: info
+      # GIN_MODE: release
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 25s
+      retries: 3

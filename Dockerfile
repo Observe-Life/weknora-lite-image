@@ -12,10 +12,13 @@
 #  构建上下文必须是 WeKnora 源码根目录，例如：
 #      docker build -t weknora-lite:local .
 #
-#  两个必须守住的点（否则镜像能构建但功能是坏的）：
+#  几个必须守住的点（否则镜像能构建但功能是坏的）：
 #    1. 后端必须带 -tags sqlite_fts5，否则中文关键词检索会静默失效；
 #    2. 编译阶段与运行阶段必须同为 Debian trixie，否则 glibc 版本不匹配，
-#       二进制在容器里直接起不来。
+#       二进制在容器里直接起不来；
+#    3. 带上 anydoc 标签时，运行阶段必须有 libstdc++6 —— anydoc 的静态库
+#       经 cgo 动态链接 libstdc++，少了它容器启动即报
+#       "error while loading shared libraries: libstdc++.so.6"。
 # ============================================================================
 
 
@@ -42,6 +45,9 @@ FROM golang:1.26-trixie AS backend
 ARG WK_VERSION=dev
 ARG WK_COMMIT=unknown
 ARG WK_BUILD_TIME=unknown
+# anydoc 是可选引擎。官方 docker/Dockerfile.app 默认开启（WITH_ANYDOC=1），
+# 关掉它能省掉整个 Rust 工具链，代价是 epub/docx/xlsx/pptx 无法在进程内解析。
+ARG WITH_ANYDOC=1
 
 ENV CGO_ENABLED=1 \
     EDITION=lite \
@@ -66,25 +72,55 @@ WORKDIR /build
 # ./third_party/anydoc-go。go mod download 解析到这条 replace 时会去读那个
 # 目录下的 go.mod，目录不存在就报 "no such file or directory" 直接退出。
 #
-# 只复制它的 go.mod 就够（官方 docker/Dockerfile.app 也是这么做的），
-# 不必把整个 Rust 源码塞进依赖层 —— 而且 anydoc 是可选功能，
-# 只有带 anydoc 构建标签才会真正链接那个 Rust 静态库，本镜像不带该标签。
+# 只复制它的 go.mod 就够（官方 docker/Dockerfile.app 也是这么做的）。
 COPY go.mod go.sum ./
 COPY third_party/anydoc-go/go.mod ./third_party/anydoc-go/go.mod
 RUN go mod download
 
+# ---------------------------------------------------------------------------
+# anydoc 静态库（Rust）
+#
+# anydoc 把 Office / EPUB 文档在进程内转成 Markdown，不需要 Python docreader。
+# 它是一份 Rust 静态库，通过 cgo 链接，所以要现场装 Rust 再编译。
+# 官方 docker/Dockerfile.app 默认就开着它。
+#
+# 单独成层、且只复制它依赖的两个目录，是为了让这一层能被缓存复用 ——
+# Rust 编译要几分钟，改源码不该触发它重跑。
+#
+# 产物落在 third_party/anydoc-go/lib/linux_amd64_gnu/libanydoc_go.a，
+# 正好是 lib_linux_gnu.go 里 cgo LDFLAGS 写死的路径。
+# ---------------------------------------------------------------------------
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
+
+COPY third_party/anydoc-go ./third_party/anydoc-go
+COPY scripts ./scripts
+
+RUN set -eux; \
+    if [ "$WITH_ANYDOC" = "1" ]; then \
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable; \
+        ./scripts/build-anydoc-lib.sh; \
+        ls -lh third_party/anydoc-go/lib/*/; \
+    fi
+
+# 全量源码。上面生成的 lib/ 是构建产物、不在源码里，这一层不会覆盖它。
 COPY . .
 # 前端产物落到 web/，运行时由 WEKNORA_WEB_DIR 指向
 COPY --from=frontend /build/frontend/dist ./web
 
 RUN set -eux; \
+    TAGS="sqlite_fts5"; \
+    if [ "$WITH_ANYDOC" = "1" ]; then TAGS="$TAGS anydoc"; fi; \
+    echo ">>> 构建标签: $TAGS"; \
     LDFLAGS="-w -s \
       -X github.com/Tencent/WeKnora/internal/handler.Version=${WK_VERSION} \
       -X github.com/Tencent/WeKnora/internal/handler.Edition=lite \
       -X github.com/Tencent/WeKnora/internal/handler.CommitID=${WK_COMMIT} \
       -X github.com/Tencent/WeKnora/internal/handler.BuildTime=${WK_BUILD_TIME} \
       -X google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn"; \
-    go build -tags "sqlite_fts5" -ldflags "$LDFLAGS" -o /out/WeKnora-lite ./cmd/server; \
+    go build -tags "$TAGS" -ldflags "$LDFLAGS" -o /out/WeKnora-lite ./cmd/server; \
     ls -lh /out/WeKnora-lite
 
 
@@ -106,7 +142,12 @@ LABEL org.opencontainers.image.title="WeKnora Lite (unofficial)" \
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates tzdata curl libsqlite3-0; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tzdata \
+        curl \
+        libsqlite3-0 \
+        libstdc++6; \
     rm -rf /var/lib/apt/lists/*; \
     groupadd -g 1000 weknora; \
     useradd -u 1000 -g 1000 -M -s /usr/sbin/nologin weknora
