@@ -47,16 +47,17 @@ ENV CGO_ENABLED=1 \
     EDITION=lite \
     CGO_CFLAGS=-Wno-deprecated-declarations
 
-WORKDIR /build
-
-# CGO 编译需要 sqlite3 头文件。
-# 报错形如：./sqlite-vec.h:7:10: fatal error: sqlite3.h: No such file or directory
-# sqlite-vec 的 C 源码 include <sqlite3.h>，而 golang 镜像不带这个头文件。
-# 官方 docker/Dockerfile.app 同样安装 libsqlite3-dev，其安装文档也把该包列为编译前置。
+# 编译阶段必须装 libsqlite3-dev：
+# sqlite-vec 这个 cgo 包直接 #include "sqlite3.h"，要的是系统 SQLite 头文件，
+# mattn/go-sqlite3 自带的 amalgamation 顶不上。缺了它会报
+#   ./sqlite-vec.h:7:10: fatal error: sqlite3.h: No such file or directory
+# 官方 docker/Dockerfile.app 的编译阶段同样装了 libsqlite3-dev。
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends libsqlite3-dev; \
     rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
 
 # 依赖层单独缓存，源码改动不会触发重新下载模块。
 #
@@ -81,7 +82,8 @@ RUN set -eux; \
       -X github.com/Tencent/WeKnora/internal/handler.Version=${WK_VERSION} \
       -X github.com/Tencent/WeKnora/internal/handler.Edition=lite \
       -X github.com/Tencent/WeKnora/internal/handler.CommitID=${WK_COMMIT} \
-      -X github.com/Tencent/WeKnora/internal/handler.BuildTime=${WK_BUILD_TIME}"; \
+      -X github.com/Tencent/WeKnora/internal/handler.BuildTime=${WK_BUILD_TIME} \
+      -X google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn"; \
     go build -tags "sqlite_fts5" -ldflags "$LDFLAGS" -o /out/WeKnora-lite ./cmd/server; \
     ls -lh /out/WeKnora-lite
 
