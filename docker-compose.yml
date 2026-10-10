@@ -1,0 +1,49 @@
+# WeKnora Lite 容器编排
+#
+# 用法：
+#   docker compose up -d
+#   docker compose logs -f
+#
+# 首次启动会在 ./data 下自动生成 .env.lite（含随机安全密钥），
+# 所有数据都落在这个目录里，备份时直接打包 ./data 即可。
+
+services:
+  weknora-lite:
+    image: ghcr.io/observe-life/weknora-lite-image:0.8.2
+    container_name: weknora-lite
+    restart: unless-stopped
+
+    # 左边是 NAS 上的端口，右边是容器内的端口。
+    # 容器内固定 8080，这里映射到 18080 是为了避开已被占用的 8080。
+    ports:
+      - "18080:8080"
+
+    volumes:
+      # 数据库、上传的文件、配置文件都在这里
+      - ./data:/data
+
+    environment:
+      TZ: Asia/Shanghai
+
+      # ---- 以下按需启用 ----
+      # 容器环境变量的优先级高于 ./data/.env.lite 里的同名项，
+      # 所以临时调整参数时，用这里覆盖最方便。
+
+      # LLM / 向量模型服务地址（Lite 默认走本机 Ollama）
+      # OLLAMA_BASE_URL: http://192.168.31.115:11434
+
+      # 日志级别：debug / info / warn / error
+      # LOG_LEVEL: info
+
+      # 生产模式（关掉 debug 输出）
+      # GIN_MODE: release
+
+      # 允许新用户注册（默认 false，单机自用保持关闭即可）
+      # DISABLE_REGISTRATION: "true"
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 25s
+      retries: 3

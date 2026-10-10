@@ -1,0 +1,64 @@
+# 本仓库自用的 .dockerignore，构建时覆盖上游那份。
+#
+# 为什么必须覆盖：上游 .dockerignore 里排除了整个 frontend/ 目录
+# （因为官方其他镜像的 Dockerfile 都不引用它），但 Lite 镜像恰恰需要
+# 编译前端，沿用它会导致 COPY frontend/ 直接失败。
+#
+# 原则：只排除真正的噪音，凡编译可能用到的目录一律保留。
+# 特别注意不要排除 docs/ —— 上游注释明确指出 docs/docs.go 与
+# docs/swagger.json 是 Go 代码依赖的 swagger 包。
+
+# 版本控制与 CI
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# 编辑器 / IDE
+.cursor/
+.claude/
+.codebuddy/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Python 缓存
+**/.venv/
+**/__pycache__/
+**/*.pyc
+
+# Node 依赖（由 npm ci 在镜像内重新安装）
+**/node_modules/
+
+# 日志与临时文件
+logs/
+tmp/
+temp/
+*.log
+*.pid
+
+# 本地构建产物
+/server
+/dist/
+/build/
+cmd/desktop/build/bin/
+
+# 本地数据
+/models/
+data/files/
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# 敏感文件（.env.lite.example 模板必须保留，故不排除）
+.env
+.env.lite
+*.pem
+*.key
+*.crt
+
+# 大归档
+packages/protoc-*.zip
+!packages/protoc-*-linux-x86_64.zip
