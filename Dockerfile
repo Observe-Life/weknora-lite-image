@@ -49,8 +49,18 @@ ENV CGO_ENABLED=1 \
 
 WORKDIR /build
 
-# 依赖层单独缓存，源码改动不会触发重新下载模块
+# 依赖层单独缓存，源码改动不会触发重新下载模块。
+#
+# 注意这里的第二行 COPY，缺了它构建必定失败：
+# go.mod 末尾有一条 replace，把 github.com/firecrawl/anydoc/go 指向本地目录
+# ./third_party/anydoc-go。go mod download 解析到这条 replace 时会去读那个
+# 目录下的 go.mod，目录不存在就报 "no such file or directory" 直接退出。
+#
+# 只复制它的 go.mod 就够（官方 docker/Dockerfile.app 也是这么做的），
+# 不必把整个 Rust 源码塞进依赖层 —— 而且 anydoc 是可选功能，
+# 只有带 anydoc 构建标签才会真正链接那个 Rust 静态库，本镜像不带该标签。
 COPY go.mod go.sum ./
+COPY third_party/anydoc-go/go.mod ./third_party/anydoc-go/go.mod
 RUN go mod download
 
 COPY . .

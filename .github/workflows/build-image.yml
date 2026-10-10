@@ -51,9 +51,14 @@ jobs:
           # GHCR 要求镜像名全小写
           IMAGE="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
 
-          echo "ref=$REF"     >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG"     >> "$GITHUB_OUTPUT"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          # 构建时间戳。不用 github.run_started_at —— 实测在 push 触发时它为空。
+          # 用 ISO 格式是为了不带空格，免得 ldflags 被拆断。
+          BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+          echo "ref=$REF"             >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"             >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE"         >> "$GITHUB_OUTPUT"
+          echo "build_time=$BUILD_TIME" >> "$GITHUB_OUTPUT"
 
           echo "上游版本：$REF"
           echo "镜像标签：$TAG"
@@ -123,7 +128,7 @@ jobs:
           build-args: |
             WK_VERSION=${{ steps.vars.outputs.ref }}
             WK_COMMIT=${{ github.sha }}
-            WK_BUILD_TIME=${{ github.run_started_at }}
+            WK_BUILD_TIME=${{ steps.vars.outputs.build_time }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
