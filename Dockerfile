@@ -49,6 +49,15 @@ ENV CGO_ENABLED=1 \
 
 WORKDIR /build
 
+# CGO 编译需要 sqlite3 头文件。
+# 报错形如：./sqlite-vec.h:7:10: fatal error: sqlite3.h: No such file or directory
+# sqlite-vec 的 C 源码 include <sqlite3.h>，而 golang 镜像不带这个头文件。
+# 官方 docker/Dockerfile.app 同样安装 libsqlite3-dev，其安装文档也把该包列为编译前置。
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends libsqlite3-dev; \
+    rm -rf /var/lib/apt/lists/*
+
 # 依赖层单独缓存，源码改动不会触发重新下载模块。
 #
 # 注意这里的第二行 COPY，缺了它构建必定失败：
@@ -95,7 +104,7 @@ LABEL org.opencontainers.image.title="WeKnora Lite (unofficial)" \
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates tzdata curl; \
+    apt-get install -y --no-install-recommends ca-certificates tzdata curl libsqlite3-0; \
     rm -rf /var/lib/apt/lists/*; \
     groupadd -g 1000 weknora; \
     useradd -u 1000 -g 1000 -M -s /usr/sbin/nologin weknora
@@ -111,6 +120,11 @@ COPY config ./config
 COPY migrations/sqlite ./migrations/sqlite
 COPY .env.lite.example ./.env.lite.example
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# gojieba（中文分词）在编译期把词典目录的绝对路径写死成模块缓存路径，
+# 运行时必须能在同一个路径下找到那些词典文件，否则中文分词静默失效。
+# 官方 docker/Dockerfile.app 也做了同样的一次搬运。
+COPY --from=backend /go/pkg/mod/github.com/yanyiwu /go/pkg/mod/github.com/yanyiwu
 
 RUN set -eux; \
     chmod 0755 /usr/local/bin/entrypoint.sh ./WeKnora-lite; \
