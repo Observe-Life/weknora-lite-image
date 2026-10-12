@@ -60,7 +60,7 @@ ENV CGO_ENABLED=1 \
 # 官方 docker/Dockerfile.app 的编译阶段同样装了 libsqlite3-dev。
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends libsqlite3-dev; \
+    apt-get install -y --no-install-recommends libsqlite3-dev python3-minimal; \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -107,6 +107,23 @@ RUN set -eux; \
 
 # 全量源码。上面生成的 lib/ 是构建产物、不在源码里，这一层不会覆盖它。
 COPY . .
+
+# ---------------------------------------------------------------------------
+# 应用 SQLite 方言补丁
+#
+# 上游 internal/application/repository/wiki_page.go 里有 4 处 PostgreSQL
+# 专用 SQL（`source_refs @> ?::jsonb`、`source_refs::text`、
+# `to_tsvector(...) @@ plainto_tsquery(...)`），而 Lite 用的是 SQLite，
+# 执行时直接报 `unrecognized token: "@"`。后果：
+#   · 删除文档时 wiki 引用清理失败 → 残留孤儿页面，只能手动一条条删
+#   · ListSlugsBySourceRef 失败 → wiki 来源追踪失效
+#   · Wiki 浏览器搜索框直接报错
+# 补丁按 db.Dialector.Name() 分支，PostgreSQL 保持原行为、SQLite 改用
+# CAST(... AS TEXT) LIKE。脚本对每处做「必须匹配且仅匹配 1 次」断言，
+# 上游代码一旦变动会立即失败，不会静默跳过。
+COPY fix-wiki-sqlite.py ./fix-wiki-sqlite.py
+RUN python3 ./fix-wiki-sqlite.py
+
 # 前端产物落到 web/，运行时由 WEKNORA_WEB_DIR 指向
 COPY --from=frontend /build/frontend/dist ./web
 

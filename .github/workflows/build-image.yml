@@ -91,6 +91,7 @@ jobs:
 
           cp img/Dockerfile    src/Dockerfile
           cp img/entrypoint.sh src/entrypoint.sh
+          cp img/fix-wiki-sqlite.py src/fix-wiki-sqlite.py
 
           # 关键一步：用本仓库的忽略规则覆盖上游那份。
           # 上游 .dockerignore 排除了整个 frontend/ 目录，
